@@ -234,52 +234,51 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     return ARRAY_BASE_OFFSET + ((long)index << ARRAY_ELEMENT_SHIFT);
   }
 
+  @SuppressWarnings("unchecked")
   private T setValueAtIndexIfUnset(int index, T value) {
     long arrayIndex = arrayIndex(index);
-    long oldMask;
-    long newMask;
-    do {
-      oldMask = mask;
-      newMask  = oldMask | (1L << index);
-      if ((oldMask & (1L << index)) != 0) {
-        return readValueAtIndex(arrayIndex);
+    T old = readValueAtIndex(arrayIndex);
+    if (null == old) {
+      if (UNSAFE.compareAndSwapObject(values, arrayIndex, null, value)) {
+        set(1L << index);
+        return null;
       }
-    } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
-    UNSAFE.putObjectVolatile(values, arrayIndex, value);
-    return null;
-  }
-
-  private T setValueAtIndex(int index, T value) {
-    long arrayIndex = arrayIndex(index);
-    T old = null;
-    long oldMask;
-    long newMask;
-    do {
-      oldMask = mask;
-      if ((oldMask & (1L << index)) != 0) {
-        old = readValueAtIndex(arrayIndex);
-      }
-      newMask  = oldMask | (1L << index);
-    } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
-    UNSAFE.putObjectVolatile(values, arrayIndex, value);
+    }
     return old;
   }
 
+  @SuppressWarnings("unchecked")
+  private T setValueAtIndex(int index, T value) {
+    long arrayIndex = arrayIndex(index);
+    T old = (T) UNSAFE.getAndSetObject(values, arrayIndex, value);
+    set(1L << index);
+    return old;
+  }
+
+  @SuppressWarnings("unchecked")
   private T removeValueAtIndex(int index) {
     long arrayIndex = arrayIndex(index);
-    T value;
+    T value = (T) UNSAFE.getAndSetObject(values, arrayIndex, null);
+    unset(~(1L << index));
+    return value;
+  }
+
+  private void set(long bit) {
     long oldMask;
     long newMask;
     do {
       oldMask = mask;
-      if ((oldMask & (1L << index)) != 0) {
-        value = readValueAtIndex(arrayIndex);
-      } else {
-        value = null;
-      }
-      newMask = oldMask & ~(1L << index);
+      newMask = oldMask | bit;
     } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
-    return value;
+  }
+
+  private void unset(long bit) {
+    long oldMask;
+    long newMask;
+    do {
+      oldMask = mask;
+      newMask = oldMask & bit;
+    } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
   }
 
 }
