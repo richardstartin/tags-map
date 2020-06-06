@@ -6,14 +6,14 @@ import org.junit.jupiter.params.provider.MethodSource;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class StringTableTest {
 
@@ -49,10 +49,13 @@ public class StringTableTest {
   public void smokeTest(Set<String> keys) {
     StringTable table = new StringTable(keys.toArray(new String[0]));
     assertEquals(table.size(), keys.size());
+    BitSet used = new BitSet(table.size());
     for (String key : keys) {
       int code = table.code(key);
       assertTrue(code >= 0);
       assertTrue(code < keys.size());
+      assertFalse(used.get(code));
+      used.set(code);
     }
   }
 

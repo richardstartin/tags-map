@@ -230,11 +230,6 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     return (T) UNSAFE.getObjectVolatile(values, index);
   }
 
-  private long arrayIndex(int index) {
-    return ARRAY_BASE_OFFSET + ((long)index << ARRAY_ELEMENT_SHIFT);
-  }
-
-  @SuppressWarnings("unchecked")
   private T setValueAtIndexIfUnset(int index, T value) {
     long arrayIndex = arrayIndex(index);
     T old = readValueAtIndex(arrayIndex);
@@ -279,6 +274,10 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
       oldMask = mask;
       newMask = oldMask & bit;
     } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
+  }
+
+  private long arrayIndex(int index) {
+    return ARRAY_BASE_OFFSET + ((long)index << ARRAY_ELEMENT_SHIFT);
   }
 
 }
