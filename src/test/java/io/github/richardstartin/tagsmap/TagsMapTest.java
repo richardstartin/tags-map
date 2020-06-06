@@ -15,14 +15,9 @@ class TagsMapTest {
     TagsMap<Object> map = TagsMap.create(String.class, "x1", "x2", "x3", "x4");
     assertNull(map.put("x1", "x1"));
     assertEquals("x1", map.get("x1"));
-    assertNull(map.getExclusive("x1"));
     assertNull(map.get("x2"));
     assertNull(map.put("x2", 10));
     assertEquals(10, map.get("x2"));
-    assertNull(map.getExclusive("x2"));
-    map.makeImmutable();
-    assertEquals("x1", map.getExclusive("x1"));
-    assertEquals(10, map.getExclusive("x2"));
   }
 
   @Test
@@ -83,11 +78,10 @@ class TagsMapTest {
       x2Writer.join();
       assertEquals(x2.get(), map.get("x2"));
       reader.join();
-      map.makeImmutable();
-      assertEquals(x1.get(), map.getExclusive("x1"));
-      assertEquals(x2.get(), map.getExclusive("x2"));
-      System.out.println("x1=" + map.getExclusive("x1"));
-      System.out.println("x2=" + map.getExclusive("x2"));
+      assertEquals(x1.get(), map.get("x1"));
+      assertEquals(x2.get(), map.get("x2"));
+      System.out.println("x1=" + map.get("x1"));
+      System.out.println("x2=" + map.get("x2"));
     }
   }
 

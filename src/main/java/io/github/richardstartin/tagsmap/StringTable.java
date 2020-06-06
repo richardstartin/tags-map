@@ -2,11 +2,14 @@ package io.github.richardstartin.tagsmap;
 
 import java.util.*;
 
+import static io.github.richardstartin.tagsmap.TagsMap.INT_ARRAY_BASE_OFFSET;
+import static io.github.richardstartin.tagsmap.TagsMap.UNSAFE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class StringTable {
 
-  private final EqualityBucket[] equalityBuckets;
+  private final String[] strings;
+  private final byte[][] utf8;
   private final Set<String> keySet;
   private final int size;
   private final int[] values;
@@ -19,9 +22,11 @@ public class StringTable {
     this.values = new int[length];
     Arrays.fill(values, -1);
     this.seeds = new int[length];
-    this.equalityBuckets = new EqualityBucket[strings.length];
+    this.strings = new String[strings.length];
+    this.utf8 = new byte[strings.length][];
     for (int i = 0; i < strings.length; ++i) {
-      equalityBuckets[i] = new EqualityBucket(strings[i]);
+      this.strings[i] = strings[i];
+      this.utf8[i] = strings[i].getBytes(UTF_8);
     }
     List<Bucket>[] buckets = new List[length];
     Arrays.setAll(buckets, i -> new ArrayList<>());
@@ -82,10 +87,10 @@ public class StringTable {
 
 
   public int code(String value) {
-    int seed = seeds[value.hashCode() & (values.length - 1)];
-    return seed < 0
-            ? values[-seed-1]
-            : values[xorShift(seed + value.hashCode()) & (values.length - 1)];
+    int hash = value.hashCode();
+    int seed = UNSAFE.getInt(seeds, arrayIndex(hash & (values.length - 1)));
+    int index = seed < 0 ? -seed-1 : xorShift(seed + hash) & (values.length - 1);
+    return UNSAFE.getInt(values, arrayIndex(index));
   }
 
   public int size() {
@@ -98,9 +103,7 @@ public class StringTable {
 
   public byte[] getEncoded(String value) {
     int code = code(value);
-    return code >= 0 && value.equals(equalityBuckets[code].string)
-            ? equalityBuckets[code].encoding
-            : null;
+    return code >= 0 && value.equals(strings[code]) ? utf8[code] : null;
   }
 
   private static class Bucket {
@@ -113,20 +116,14 @@ public class StringTable {
     }
   }
 
-  private static class EqualityBucket {
-    private final String string;
-    private final byte[] encoding;
-
-    private EqualityBucket(String string) {
-      this.string = string;
-      this.encoding = string.getBytes(UTF_8);
-    }
-  }
-
   private static int xorShift(long x) {
     x ^= x >>> 12;
     x ^= x << 25;
     x ^= x >>> 27;
     return (int)(x * 2685821657736338717L);
+  }
+
+  private long arrayIndex(int index) {
+    return INT_ARRAY_BASE_OFFSET + (index * 4);
   }
 }

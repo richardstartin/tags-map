@@ -13,10 +13,11 @@ import java.util.concurrent.ConcurrentMap;
  */
 public class TagsMap<T> implements ConcurrentMap<String, T> {
 
-  private static final Unsafe UNSAFE;
-  private static final int ARRAY_BASE_OFFSET;
-  private static final int ARRAY_ELEMENT_SHIFT;
-  private static final long MASK_OFFSET;
+  static final Unsafe UNSAFE;
+  static final int ARRAY_BASE_OFFSET;
+  static final int ARRAY_ELEMENT_SHIFT;
+  static final int INT_ARRAY_BASE_OFFSET;
+  static final long MASK_OFFSET;
 
   static {
     try {
@@ -24,6 +25,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
       f.setAccessible(true);
       UNSAFE = (Unsafe) f.get(null);
       ARRAY_BASE_OFFSET = UNSAFE.arrayBaseOffset(Object[].class);
+      INT_ARRAY_BASE_OFFSET = UNSAFE.arrayBaseOffset(int[].class);
       ARRAY_ELEMENT_SHIFT = Integer.numberOfTrailingZeros(UNSAFE.arrayIndexScale(Object[].class));
       MASK_OFFSET = UNSAFE.objectFieldOffset(TagsMap.class.getDeclaredField("mask"));
     } catch (Exception e) {
@@ -61,8 +63,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
 
   private final StringTable stringTable;
   private final Object[] values;
-  private volatile long mask;
-  private long localMask;
+  private long mask;
 
   private TagsMap(Class<?> klass) {
     this.stringTable = PERFECT_HASHES.get(klass);
@@ -108,28 +109,12 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   }
 
   @Override
-  public T get(Object key) {
-    if (key instanceof String) {
-      int index = stringTable.code((String) key);
-      if (index >= 0) {
-        long mask = this.mask;
-        if ((mask & (1L << index)) != 0) {
-          return readValueAtIndex(index);
-        }
-      }
-    }
-    return null;
-  }
-
   @SuppressWarnings("unchecked")
-  public T getExclusive(Object key) {
-    // safe to call from a single thread after being marked as immutable
-    if (key instanceof String) {
-      int index = stringTable.code((String) key);
-      if (index >= 0) {
-        if ((localMask & (1L << index)) != 0) {
-          return (T) values[index];
-        }
+  public T get(Object key) {
+    int index = stringTable.code((String) key);
+    if (index >= 0) {
+      if ((mask & (1L << index)) != 0) {
+        return (T) UNSAFE.getObject(values, arrayIndex(index));
       }
     }
     return null;
@@ -146,12 +131,9 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
 
   @Override
   public T remove(Object key) {
-    if (key instanceof String) {
-      int index = stringTable.code((String) key);
-      long mask = this.mask;
-      if (index >= 0 && (mask & 1L << index) != 0) {
-        return removeValueAtIndex(index);
-      }
+    int index = stringTable.code((String) key);
+    if (index >= 0 && (mask & 1L << index) != 0) {
+      return removeValueAtIndex(index);
     }
     return null;
   }
@@ -213,13 +195,6 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     throw new IllegalStateException();
   }
 
-  /**
-   * Make reads to an exclusive owning thread possible?
-   */
-  public void makeImmutable() {
-    this.localMask = mask;
-  }
-
   @SuppressWarnings("unchecked")
   private T readValueAtIndex(int index) {
     return (T) UNSAFE.getObjectVolatile(values, arrayIndex(index));
@@ -262,7 +237,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     long oldMask;
     long newMask;
     do {
-      oldMask = mask;
+      oldMask = UNSAFE.getLongVolatile(this, MASK_OFFSET);
       newMask = oldMask | bit;
     } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
   }
@@ -271,7 +246,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     long oldMask;
     long newMask;
     do {
-      oldMask = mask;
+      oldMask = UNSAFE.getLongVolatile(this, MASK_OFFSET);
       newMask = oldMask & bit;
     } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
   }
