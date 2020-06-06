@@ -28,18 +28,30 @@ class TagsMapTest {
   @Test
   public void visibilityTest() throws InterruptedException {
     AtomicLong counter = new AtomicLong();
-    AtomicLong puts = new AtomicLong();
-    TagsMap<Long> map = TagsMap.create(String.class, "x1", "x2");
-    CountDownLatch latch = new CountDownLatch(1);
-    Thread writer = new Thread(() -> {
+    AtomicLong x1 = new AtomicLong();
+    AtomicLong x2 = new AtomicLong();
+    TagsMap<Long> map = TagsMap.create(Object.class, "x1", "x2");
+    CountDownLatch latch = new CountDownLatch(2);
+    Thread x1Writer = new Thread(() -> {
       map.put("x1", counter.get());
       long count = 0;
       latch.countDown();
-      for (int i = 0; i < 100000; ++i) {
+      for (int i = 0; i < 1000000; ++i) {
         count = counter.get();
         map.put("x1", count);
       }
-      puts.set(count);
+      x1.set(count);
+    });
+
+    Thread x2Writer = new Thread(() -> {
+      map.put("x2", counter.get());
+      long count = 0;
+      latch.countDown();
+      for (int i = 0; i < 1000000; ++i) {
+        count = counter.get();
+        map.put("x2", count);
+      }
+      x2.set(count);
     });
 
 
@@ -50,19 +62,29 @@ class TagsMapTest {
         Thread.currentThread().interrupt();
         return;
       }
-      for (int i = 0; i < 100000; ++i) {
-        Long value = map.get("x1");
-        assertTrue(value <= counter.getAndIncrement());
-        assertTrue(value >= puts.get());
+      for (int i = 0; i < 1000000; ++i) {
+        Long v1 = map.get("x1");
+        Long v2 = map.get("x2");
+        assertTrue(v1 <= counter.get());
+        assertTrue(v1 >= x1.get());
+        assertTrue(v2 <= counter.get());
+        assertTrue(v2 >= x2.get());
+        counter.incrementAndGet();
       }
     });
     reader.start();
-    writer.start();
-    writer.join();
-    assertEquals(puts.get(), map.get("x1"));
+    x1Writer.start();
+    x2Writer.start();
+    x1Writer.join();
+    assertEquals(x1.get(), map.get("x1"));
+    x2Writer.join();
+    assertEquals(x2.get(), map.get("x2"));
     reader.join();
     map.makeImmutable();
-    assertEquals(puts.get(), map.getExclusive("x1"));
+    assertEquals(x1.get(), map.getExclusive("x1"));
+    assertEquals(x2.get(), map.getExclusive("x2"));
+    System.out.println("x1=" + map.getExclusive("x1"));
+    System.out.println("x2=" + map.getExclusive("x2"));
   }
 
 }
