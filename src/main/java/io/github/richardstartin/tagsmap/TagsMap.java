@@ -4,7 +4,6 @@ import sun.misc.Unsafe;
 
 import java.lang.reflect.Field;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 /**
@@ -33,40 +32,16 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     }
   }
 
-  private static final ConcurrentHashMap<Class<?>, String[]> KEYS = new ConcurrentHashMap<>();
-
-  private static final ClassValue<StringTable> PERFECT_HASHES = new ClassValue<StringTable>() {
-    @Override
-    protected StringTable computeValue(Class<?> type) {
-      return new StringTable(KEYS.get(type));
-    }
-  };
-
-  public static void registerKeys(Class<?> klass, String... keys) {
-    if (keys.length > 64) {
-      throw new IllegalStateException();
-    }
-    String[] present = KEYS.putIfAbsent(klass, keys);
-    if (null != present) {
-      throw new IllegalStateException("keys " + Arrays.toString(present) + " already registered for class " + klass);
-    }
-  }
-
-  public static <T> TagsMap<T> create(Class<?> type, String... keys) {
-    registerKeys(type, keys);
-    return create(type);
-  }
-
-  public static <T> TagsMap<T> create(Class<?> type) {
-    return new TagsMap<>(type);
+  public static <T> TagsMap<T> create(StringTable table) {
+    return new TagsMap<>(table);
   }
 
   private final StringTable stringTable;
   private final Object[] values;
   private long mask;
 
-  private TagsMap(Class<?> klass) {
-    this.stringTable = PERFECT_HASHES.get(klass);
+  private TagsMap(StringTable stringTable) {
+    this.stringTable = stringTable;
     this.values = new Object[stringTable.size()];
   }
 
@@ -82,12 +57,9 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
 
   @Override
   public boolean containsKey(Object key) {
-    if (key instanceof String) {
-      int index = stringTable.code((String) key);
-      if (index >= 0) {
-        long mask = this.mask;
-        return (mask & (1L << index)) != 0;
-      }
+    int index = stringTable.code((String) key);
+    if (index >= 0 && stringTable.get(index).equals(key)) {
+      return (mask & (1L << index)) != 0;
     }
     return false;
   }
@@ -112,7 +84,18 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   @SuppressWarnings("unchecked")
   public T get(Object key) {
     int index = stringTable.code((String) key);
-    if (index >= 0) {
+    if (index >= 0 && stringTable.get(index).equals(key)) {
+      if ((mask & (1L << index)) != 0) {
+        return (T) UNSAFE.getObjectVolatile(values, arrayIndex(index));
+      }
+    }
+    return null;
+  }
+
+  @SuppressWarnings("unchecked")
+  public T getExclusive(Object key) {
+    int index = stringTable.code((String) key);
+    if (index >= 0 && stringTable.get(index).equals(key)) {
       if ((mask & (1L << index)) != 0) {
         return (T) UNSAFE.getObject(values, arrayIndex(index));
       }

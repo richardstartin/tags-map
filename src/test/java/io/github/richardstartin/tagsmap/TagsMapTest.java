@@ -12,7 +12,7 @@ class TagsMapTest {
   @Test
   public void getAndSet() {
     // associates a set of keys with the string class
-    TagsMap<Object> map = TagsMap.create(String.class, "x1", "x2", "x3", "x4");
+    TagsMap<Object> map = TagsMap.create(StringTables.create("x1", "x2", "x3", "x4"));
     assertNull(map.put("x1", "x1"));
     assertEquals("x1", map.get("x1"));
     assertNull(map.get("x2"));
@@ -22,7 +22,7 @@ class TagsMapTest {
 
   @Test
   public void visibilityTest() throws InterruptedException {
-    TagsMap<Long> map = TagsMap.create(Object.class, "x1", "x2");
+    TagsMap<Long> map = TagsMap.create(StringTables.create("x1", "x2"));
     for (int j = 0; j < 100; ++j) {
       AtomicLong counter = new AtomicLong();
       AtomicLong x1 = new AtomicLong();

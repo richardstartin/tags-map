@@ -101,6 +101,14 @@ public class StringTable {
     return keySet;
   }
 
+  public String get(int code) {
+    return strings[code];
+  }
+
+  public byte[] getEncoded(int code) {
+    return utf8[code];
+  }
+
   public byte[] getEncoded(String value) {
     int code = code(value);
     return code >= 0 && value.equals(strings[code]) ? utf8[code] : null;
@@ -116,11 +124,11 @@ public class StringTable {
     }
   }
 
-  private static int xorShift(long x) {
-    x ^= x >>> 12;
-    x ^= x << 25;
-    x ^= x >>> 27;
-    return (int)(x * 2685821657736338717L);
+  private static int xorShift(int x) {
+    x ^= x << 13;
+    x ^= x >>> 17;
+    x ^= x << 5;
+    return x;
   }
 
   private long arrayIndex(int index) {

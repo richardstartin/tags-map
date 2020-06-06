@@ -35,7 +35,7 @@ public class StringTableTest {
   public static Stream<Arguments> randomStringSets() {
     return IntStream.range(0, 1000)
             .mapToObj(i -> {
-              int count = ThreadLocalRandom.current().nextInt(1, 1000);
+              int count = ThreadLocalRandom.current().nextInt(1, 64);
               String[] args = new String[count];
               for (int s = 0; s < count; ++s) {
                 args[s] = create(ThreadLocalRandom.current().nextInt(1, 20));
