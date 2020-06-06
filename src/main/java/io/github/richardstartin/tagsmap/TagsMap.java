@@ -235,7 +235,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     T old = readValueAtIndex(arrayIndex);
     if (null == old) {
       if (UNSAFE.compareAndSwapObject(values, arrayIndex, null, value)) {
-        set(1L << index);
+        casOr(1L << index);
         return null;
       }
     }
@@ -246,7 +246,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   private T setValueAtIndex(int index, T value) {
     long arrayIndex = arrayIndex(index);
     T old = (T) UNSAFE.getAndSetObject(values, arrayIndex, value);
-    set(1L << index);
+    casOr(1L << index);
     return old;
   }
 
@@ -254,11 +254,11 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   private T removeValueAtIndex(int index) {
     long arrayIndex = arrayIndex(index);
     T value = (T) UNSAFE.getAndSetObject(values, arrayIndex, null);
-    unset(~(1L << index));
+    casAnd(~(1L << index));
     return value;
   }
 
-  private void set(long bit) {
+  private void casOr(long bit) {
     long oldMask;
     long newMask;
     do {
@@ -267,7 +267,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
   }
 
-  private void unset(long bit) {
+  private void casAnd(long bit) {
     long oldMask;
     long newMask;
     do {
