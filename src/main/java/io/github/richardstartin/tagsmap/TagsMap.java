@@ -58,8 +58,8 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   @Override
   public boolean containsKey(Object key) {
     int index = stringTable.code((String) key);
-    if (index >= 0 && stringTable.get(index).equals(key)) {
-      return (mask & (1L << index)) != 0;
+    if (index >= 0 && (mask & (1L << index)) != 0) {
+      return stringTable.get(index).equals(key);
     }
     return false;
   }
@@ -84,10 +84,8 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   @SuppressWarnings("unchecked")
   public T get(Object key) {
     int index = stringTable.code((String) key);
-    if (index >= 0 && stringTable.get(index).equals(key)) {
-      if ((mask & (1L << index)) != 0) {
-        return (T) UNSAFE.getObjectVolatile(values, arrayIndex(index));
-      }
+    if (index >= 0 && (mask & (1L << index)) != 0 && stringTable.get(index).equals(key)) {
+      return (T) UNSAFE.getObjectVolatile(values, arrayIndex(index));
     }
     return null;
   }
@@ -95,12 +93,18 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   @SuppressWarnings("unchecked")
   public T getExclusive(Object key) {
     int index = stringTable.code((String) key);
-    if (index >= 0 && stringTable.get(index).equals(key)) {
-      if ((mask & (1L << index)) != 0) {
-        return (T) UNSAFE.getObject(values, arrayIndex(index));
-      }
+    if (index >= 0 && (mask & (1L << index)) != 0
+            && stringTable.get(index).equals(key)) {
+      return (T) UNSAFE.getObject(values, arrayIndex(index));
     }
     return null;
+  }
+
+  @SuppressWarnings("unchecked")
+  public T getRaw(Object key) {
+    // the key is known to be in the string table
+    int index = stringTable.code((String) key);
+    return (T) UNSAFE.getObject(values, arrayIndex(index));
   }
 
   @Override

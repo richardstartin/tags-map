@@ -30,6 +30,9 @@ public class GetTagBenchmark {
   @Param({"4", "8", "16"})
   int keyCount;
 
+  @Param({"true", "false"})
+  boolean present;
+
   ConcurrentHashMap<String, Object> chm;
   TagsMap<Object> tm;
 
@@ -47,8 +50,11 @@ public class GetTagBenchmark {
       chm.put(keys[i], i);
       tm.put(keys[i], i);
     }
-    System.out.println(ClassLayout.parseInstance(chm).toPrintable());
-    System.out.println(ClassLayout.parseInstance(tm).toPrintable());
+    if (!present) {
+      for (int i = 0; i < keyCount; ++i) {
+        keys[i] += 'A';
+      }
+    }
   }
 
   @Threads(1)
@@ -96,6 +102,30 @@ public class GetTagBenchmark {
   public void tm4Exc(Blackhole bh) {
     for (String key : keys) {
       bh.consume(tm.getExclusive(key));
+    }
+  }
+
+  @Threads(1)
+  @Benchmark
+  public void tm1Raw(Blackhole bh) {
+    for (String key : keys) {
+      bh.consume(tm.getRaw(key));
+    }
+  }
+
+  @Threads(2)
+  @Benchmark
+  public void tm2Raw(Blackhole bh) {
+    for (String key : keys) {
+      bh.consume(tm.getRaw(key));
+    }
+  }
+
+  @Threads(4)
+  @Benchmark
+  public void tm4Raw(Blackhole bh) {
+    for (String key : keys) {
+      bh.consume(tm.getRaw(key));
     }
   }
 
