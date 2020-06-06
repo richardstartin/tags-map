@@ -12,9 +12,14 @@ class TagsMapTest {
     TagsMap<Object> map = TagsMap.create(String.class, "x1", "x2", "x3", "x4");
     assertNull(map.put("x1", "x1"));
     assertEquals("x1", map.get("x1"));
+    assertNull(map.getExclusive("x1"));
     assertNull(map.get("x2"));
     assertNull(map.put("x2", 10));
     assertEquals(10, map.get("x2"));
+    assertNull(map.getExclusive("x2"));
+    map.makeImmutable();
+    assertEquals("x1", map.getExclusive("x1"));
+    assertEquals(10, map.getExclusive("x2"));
   }
 
 }

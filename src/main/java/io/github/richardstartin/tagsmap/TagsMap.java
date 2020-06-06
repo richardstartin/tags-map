@@ -14,6 +14,8 @@ import java.util.concurrent.ConcurrentMap;
 public class TagsMap<T> implements ConcurrentMap<String, T> {
 
   private static final Unsafe UNSAFE;
+  private static final int ARRAY_BASE_OFFSET;
+  private static final int ARRAY_ELEMENT_SHIFT;
   private static final long MASK_OFFSET;
 
   static {
@@ -21,6 +23,8 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
       Field f = Unsafe.class.getDeclaredField("theUnsafe");
       f.setAccessible(true);
       UNSAFE = (Unsafe) f.get(null);
+      ARRAY_BASE_OFFSET = UNSAFE.arrayBaseOffset(Object[].class);
+      ARRAY_ELEMENT_SHIFT = Integer.numberOfTrailingZeros(UNSAFE.arrayIndexScale(Object[].class));
       MASK_OFFSET = UNSAFE.objectFieldOffset(TagsMap.class.getDeclaredField("mask"));
     } catch (Exception e) {
       throw new IllegalStateException(e);
@@ -58,6 +62,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   private final StringTable stringTable;
   private final Object[] values;
   private volatile long mask;
+  private long localMask;
 
   private TagsMap(Class<?> klass) {
     this.stringTable = PERFECT_HASHES.get(klass);
@@ -110,6 +115,20 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
         long mask = this.mask;
         if ((mask & (1L << index)) != 0) {
           return readValueAtIndex(index);
+        }
+      }
+    }
+    return null;
+  }
+
+  @SuppressWarnings("unchecked")
+  public T getExclusive(Object key) {
+    // safe to call from a single thread after being marked as immutable
+    if (key instanceof String) {
+      int index = stringTable.code((String) key);
+      if (index >= 0) {
+        if ((localMask & (1L << index)) != 0) {
+          return (T) values[index];
         }
       }
     }
@@ -194,50 +213,67 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     throw new IllegalStateException();
   }
 
-  // TODO array accesses are not synchronised at all
+  /**
+   * Make reads to an exclusive owning thread possible?
+   */
+  public void makeImmutable() {
+    this.localMask = mask;
+  }
+
   @SuppressWarnings("unchecked")
   private T readValueAtIndex(int index) {
-    // TODO needs concurrency control
-    return (T) values[index];
+    return (T) UNSAFE.getObjectVolatile(values, arrayIndex(index));
+  }
+
+  @SuppressWarnings("unchecked")
+  private T readValueAtIndex(long index) {
+    return (T) UNSAFE.getObjectVolatile(values, index);
+  }
+
+  private long arrayIndex(int index) {
+    return ARRAY_BASE_OFFSET + ((long)index << ARRAY_ELEMENT_SHIFT);
   }
 
   private T setValueAtIndexIfUnset(int index, T value) {
+    long arrayIndex = arrayIndex(index);
     long oldMask;
     long newMask;
     do {
       oldMask = mask;
       newMask  = oldMask | (1L << index);
       if ((oldMask & (1L << index)) != 0) {
-        return readValueAtIndex(index);
+        return readValueAtIndex(arrayIndex);
       }
     } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
-    values[index] = value;
+    UNSAFE.putObjectVolatile(values, arrayIndex, value);
     return null;
   }
 
   private T setValueAtIndex(int index, T value) {
+    long arrayIndex = arrayIndex(index);
     T old = null;
     long oldMask;
     long newMask;
     do {
       oldMask = mask;
       if ((oldMask & (1L << index)) != 0) {
-        old = readValueAtIndex(index);
+        old = readValueAtIndex(arrayIndex);
       }
       newMask  = oldMask | (1L << index);
     } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
-    values[index] = value;
+    UNSAFE.putObjectVolatile(values, arrayIndex, value);
     return old;
   }
 
   private T removeValueAtIndex(int index) {
+    long arrayIndex = arrayIndex(index);
     T value;
     long oldMask;
     long newMask;
     do {
       oldMask = mask;
       if ((oldMask & (1L << index)) != 0) {
-        value = readValueAtIndex(index);
+        value = readValueAtIndex(arrayIndex);
       } else {
         value = null;
       }
