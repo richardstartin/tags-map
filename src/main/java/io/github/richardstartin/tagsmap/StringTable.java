@@ -132,6 +132,6 @@ public class StringTable {
   }
 
   private long arrayIndex(int index) {
-    return INT_ARRAY_BASE_OFFSET + (index * 4);
+    return INT_ARRAY_BASE_OFFSET + (index << 2);
   }
 }

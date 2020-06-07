@@ -22,7 +22,8 @@ class TagsMapTest {
 
   @Test
   public void visibilityTest() throws InterruptedException {
-    TagsMap<Long> map = TagsMap.create(StringTables.create("x1", "x2"));
+    StringTable table = StringTables.create("x1", "x2");
+    TagsMap<Long> map = TagsMap.create(table);
     for (int j = 0; j < 100; ++j) {
       AtomicLong counter = new AtomicLong();
       AtomicLong x1 = new AtomicLong();
@@ -80,6 +81,11 @@ class TagsMapTest {
       reader.join();
       assertEquals(x1.get(), map.get("x1"));
       assertEquals(x2.get(), map.get("x2"));
+      map.makeImmutable();
+      int x1Code = table.code("x1");
+      int x2Code = table.code("x2");
+      assertEquals(map.getRaw(x1Code), map.get("x1"));
+      assertEquals(map.getRaw(x2Code), map.get("x2"));
       System.out.println("x1=" + map.get("x1"));
       System.out.println("x2=" + map.get("x2"));
     }

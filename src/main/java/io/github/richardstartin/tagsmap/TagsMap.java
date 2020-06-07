@@ -66,7 +66,6 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
 
   @Override
   public boolean containsValue(Object value) {
-    // holy fuck why would anyone use this?
     if (null != value) {
       long mask = this.mask;
       while (mask != 0) {
@@ -90,21 +89,22 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     return null;
   }
 
-  @SuppressWarnings("unchecked")
   public T getExclusive(Object key) {
     int index = stringTable.code((String) key);
     if (index >= 0 && (mask & (1L << index)) != 0
             && stringTable.get(index).equals(key)) {
-      return (T) UNSAFE.getObject(values, arrayIndex(index));
+      return getRaw(index);
     }
     return null;
   }
 
-  @SuppressWarnings("unchecked")
   public T getRaw(Object key) {
-    // the key is known to be in the string table
-    int index = stringTable.code((String) key);
-    return (T) UNSAFE.getObject(values, arrayIndex(index));
+    return getRaw(stringTable.code((String) key));
+  }
+
+  @SuppressWarnings("unchecked")
+  public T getRaw(int code) {
+    return (T) values[code];
   }
 
   @Override
@@ -194,20 +194,33 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
 
   private T setValueAtIndexIfUnset(int index, T value) {
     long arrayIndex = arrayIndex(index);
-    T old = readValueAtIndex(arrayIndex);
-    if (null == old) {
-      if (UNSAFE.compareAndSwapObject(values, arrayIndex, null, value)) {
-        casOr(1L << index);
-        return null;
-      }
+    if (UNSAFE.compareAndSwapObject(values, arrayIndex, null, value)) {
+      casOr(1L << index);
+      return null;
     }
-    return old;
+    return readValueAtIndex(arrayIndex);
   }
 
-  @SuppressWarnings("unchecked")
+  /**
+   * After calling this, the map can be used as if it were thread-local,
+   * from the thread which calls this method. Once everything is settled,
+   * and you have a reference to the same string table and know which keys
+   * you want to access, you can use this hash map as if it's an array.
+   */
+  public void makeImmutable() {
+    this.mask = UNSAFE.getLongVolatile(this, MASK_OFFSET);
+    long mask = this.mask;
+    while (mask != 0L) { // wait for any pending updates
+      int index = Long.numberOfTrailingZeros(mask);
+      values[index] = UNSAFE.getObjectVolatile(values, arrayIndex(index));
+      mask &= (mask - 1);
+    }
+  }
+
   private T setValueAtIndex(int index, T value) {
     long arrayIndex = arrayIndex(index);
-    T old = (T) UNSAFE.getAndSetObject(values, arrayIndex, value);
+    T old = readValueAtIndex(arrayIndex);
+    UNSAFE.putOrderedObject(values, arrayIndex, value);
     casOr(1L << index);
     return old;
   }
@@ -215,9 +228,8 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   @SuppressWarnings("unchecked")
   private T removeValueAtIndex(int index) {
     long arrayIndex = arrayIndex(index);
-    T value = (T) UNSAFE.getAndSetObject(values, arrayIndex, null);
     casAnd(~(1L << index));
-    return value;
+    return (T) UNSAFE.getAndSetObject(values, arrayIndex, null);
   }
 
   private void casOr(long bit) {
@@ -226,7 +238,8 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     do {
       oldMask = UNSAFE.getLongVolatile(this, MASK_OFFSET);
       newMask = oldMask | bit;
-    } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
+    } while (oldMask != newMask
+            && !UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
   }
 
   private void casAnd(long bit) {
@@ -235,7 +248,8 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     do {
       oldMask = UNSAFE.getLongVolatile(this, MASK_OFFSET);
       newMask = oldMask & bit;
-    } while (!UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
+    } while (oldMask != newMask
+            && !UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
   }
 
   private long arrayIndex(int index) {

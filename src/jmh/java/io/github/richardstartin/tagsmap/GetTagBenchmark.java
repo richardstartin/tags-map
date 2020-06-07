@@ -12,22 +12,7 @@ import java.util.concurrent.ThreadLocalRandom;
 @State(Scope.Benchmark)
 public class GetTagBenchmark {
 
-  private static final byte[] LOWER_CASE = new byte[26];
-  static {
-    for (int i = 'a'; i <= 'z'; ++i) {
-      LOWER_CASE[i - 'a'] = (byte)i;
-    }
-  }
-
-  public static String create(int size) {
-    byte[] bytes = new byte[size];
-    for (int i = 0; i < size; ++i) {
-      bytes[i] = LOWER_CASE[ThreadLocalRandom.current().nextInt(26)];
-    }
-    return new String(bytes, StandardCharsets.UTF_8);
-  }
-
-  @Param({"4", "8", "16"})
+  @Param({"4", "8", "16", "32", "64"})
   int keyCount;
 
   @Param({"true", "false"})
@@ -37,24 +22,29 @@ public class GetTagBenchmark {
   TagsMap<Object> tm;
 
   String[] keys;
+  int[] codes;
 
   @Setup(Level.Trial)
   public void setup() {
     keys = new String[keyCount];
+    codes = new int[keyCount];
     for (int i = 0; i < keyCount; ++i) {
-      keys[i] = create(10);
+      keys[i] = Strings.create(10);
     }
     chm = new ConcurrentHashMap<>(keyCount);
-    tm = TagsMap.create(StringTables.create(keys));
+    StringTable stringTable = StringTables.create(keys);
+    tm = TagsMap.create(stringTable);
     for (int i = 0; i < keyCount; ++i) {
       chm.put(keys[i], i);
       tm.put(keys[i], i);
+      codes[i] = stringTable.code(keys[i]);
     }
     if (!present) {
       for (int i = 0; i < keyCount; ++i) {
         keys[i] += 'A';
       }
     }
+    tm.makeImmutable();
   }
 
   @Threads(1)
@@ -108,24 +98,24 @@ public class GetTagBenchmark {
   @Threads(1)
   @Benchmark
   public void tm1Raw(Blackhole bh) {
-    for (String key : keys) {
-      bh.consume(tm.getRaw(key));
+    for (int code : codes) {
+      bh.consume(tm.getRaw(code));
     }
   }
 
   @Threads(2)
   @Benchmark
   public void tm2Raw(Blackhole bh) {
-    for (String key : keys) {
-      bh.consume(tm.getRaw(key));
+    for (int code : codes) {
+      bh.consume(tm.getRaw(code));
     }
   }
 
   @Threads(4)
   @Benchmark
   public void tm4Raw(Blackhole bh) {
-    for (String key : keys) {
-      bh.consume(tm.getRaw(key));
+    for (int code : codes) {
+      bh.consume(tm.getRaw(code));
     }
   }
 
