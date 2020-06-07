@@ -15,7 +15,6 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   static final Unsafe UNSAFE;
   static final int ARRAY_BASE_OFFSET;
   static final int ARRAY_ELEMENT_SHIFT;
-  static final int INT_ARRAY_BASE_OFFSET;
   static final long MASK_OFFSET;
 
   static {
@@ -24,7 +23,6 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
       f.setAccessible(true);
       UNSAFE = (Unsafe) f.get(null);
       ARRAY_BASE_OFFSET = UNSAFE.arrayBaseOffset(Object[].class);
-      INT_ARRAY_BASE_OFFSET = UNSAFE.arrayBaseOffset(int[].class);
       ARRAY_ELEMENT_SHIFT = Integer.numberOfTrailingZeros(UNSAFE.arrayIndexScale(Object[].class));
       MASK_OFFSET = UNSAFE.objectFieldOffset(TagsMap.class.getDeclaredField("mask"));
     } catch (Exception e) {

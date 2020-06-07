@@ -2,8 +2,6 @@ package io.github.richardstartin.tagsmap;
 
 import java.util.*;
 
-import static io.github.richardstartin.tagsmap.TagsMap.INT_ARRAY_BASE_OFFSET;
-import static io.github.richardstartin.tagsmap.TagsMap.UNSAFE;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class StringTable {
@@ -45,9 +43,9 @@ public class StringTable {
     int b = 0;
     for (; b < buckets.length && buckets[b].size() > 1; b++) {
       List<Bucket> subKeys = buckets[b];
-      int seed = 0;
+      int seed = 93;
       nextSeed: while (true) {
-        seed++;
+        seed += 1187;
         boolean marked = false;
         for (Bucket bucket : subKeys) {
           int i = xorShift(bucket.hash + seed) & (length - 1);
@@ -88,9 +86,9 @@ public class StringTable {
 
   public int code(String value) {
     int hash = value.hashCode();
-    int seed = UNSAFE.getInt(seeds, arrayIndex(hash & (values.length - 1)));
+    int seed = seeds[hash & (values.length - 1)];
     int index = seed < 0 ? -seed-1 : xorShift(seed + hash) & (values.length - 1);
-    return UNSAFE.getInt(values, arrayIndex(index));
+    return values[index];
   }
 
   public int size() {
@@ -129,9 +127,5 @@ public class StringTable {
     x ^= x >>> 17;
     x ^= x << 5;
     return x;
-  }
-
-  private long arrayIndex(int index) {
-    return INT_ARRAY_BASE_OFFSET + (index << 2);
   }
 }
