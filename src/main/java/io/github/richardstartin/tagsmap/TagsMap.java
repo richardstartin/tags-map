@@ -226,7 +226,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
    * and you have a reference to the same string table and know which keys
    * you want to access, you can use this hash map as if it's an array.
    */
-  public synchronized void makeImmutable() {
+  public void makeImmutable() {
     long mask = getMaskVolatile();
     this.mask = mask;
     while (mask != 0L) { // wait for any pending updates
