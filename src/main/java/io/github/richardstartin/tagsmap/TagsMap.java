@@ -45,19 +45,19 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
 
   @Override
   public int size() {
-    return Long.bitCount(mask);
+    return Long.bitCount(getMaskVolatile());
   }
 
   @Override
   public boolean isEmpty() {
-    return mask == 0L;
+    return getMaskVolatile() == 0L;
   }
 
   @Override
   public boolean containsKey(Object key) {
-    int index = stringTable.code((String) key);
-    if (index >= 0 && (mask & (1L << index)) != 0) {
-      return stringTable.get(index).equals(key);
+    int index = indexFor((String) key);
+    if (index >= 0 && stringTable.get(index).equals(key)) {
+      return (getMaskVolatile() & (1L << index)) != 0;
     }
     return false;
   }
@@ -65,7 +65,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   @Override
   public boolean containsValue(Object value) {
     if (null != value) {
-      long mask = this.mask;
+      long mask = getMaskVolatile();
       while (mask != 0) {
         int pos = Long.numberOfTrailingZeros(mask);
         if (readValueAtIndex(pos).equals(value)) {
@@ -78,18 +78,17 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public T get(Object key) {
-    int index = stringTable.code((String) key);
-    if (index >= 0 && (mask & (1L << index)) != 0 && stringTable.get(index).equals(key)) {
-      return (T) UNSAFE.getObjectVolatile(values, arrayIndex(index));
+    int index = indexFor((String) key);
+    if (index >= 0 && stringTable.get(index).equals(key)) {
+      return readValueAtIndex(index);
     }
     return null;
   }
 
   public T getExclusive(Object key) {
-    int index = stringTable.code((String) key);
-    if (index >= 0 && (mask & (1L << index)) != 0
+    int index = indexFor((String) key);
+    if (index >= 0 && (mask & 1L << index) != 0
             && stringTable.get(index).equals(key)) {
       return getRaw(index);
     }
@@ -97,7 +96,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   }
 
   public T getRaw(Object key) {
-    return getRaw(stringTable.code((String) key));
+    return getRaw(indexFor((String) key));
   }
 
   @SuppressWarnings("unchecked")
@@ -105,10 +104,26 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     return (T) values[code];
   }
 
+  public void putRaw(int code, T value) {
+    values[code] = value;
+  }
+
+  public void putRaw(String key, T value) {
+    values[indexFor(key)] = value;
+  }
+
+  public void removeRaw(String key) {
+    values[indexFor(key)] = null;
+  }
+
+  public void removeRaw(int code) {
+    values[code] = null;
+  }
+
   @Override
   public T put(String key, T value) {
     int index = stringTable.code(key);
-    if (index >= 0) {
+    if (index >= 0 && stringTable.get(index).equals(key)) {
       return setValueAtIndex(index, value);
     }
     throw new IllegalStateException("unregistered: " + key);
@@ -117,7 +132,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   @Override
   public T remove(Object key) {
     int index = stringTable.code((String) key);
-    if (index >= 0 && (mask & 1L << index) != 0) {
+    if (index >= 0 && stringTable.get(index).equals(key)) {
       return removeValueAtIndex(index);
     }
     return null;
@@ -130,7 +145,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
 
   @Override
   public void clear() {
-    this.mask = 0L;
+    UNSAFE.putLongVolatile(this, MASK_OFFSET, 0L);
     Arrays.fill(values, null);
   }
 
@@ -140,14 +155,16 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public Collection<T> values() {
-    long mask = this.mask;
-    List<T> values = new ArrayList<>(Long.bitCount(mask));
-    while (mask != 0) {
-      values.add((T)this.values[Long.numberOfTrailingZeros(mask)]);
-      mask &= (mask - 1);
-    }
+    long mask = getMaskVolatile();
+    List<T> values;
+    do {
+      values = new ArrayList<>(Long.bitCount(mask));
+      while (mask != 0) {
+        values.add(readValueAtIndex(Long.numberOfTrailingZeros(mask)));
+        mask &= (mask - 1);
+      }
+    } while (mask != getMaskVolatile());
     return values;
   }
 
@@ -159,7 +176,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
   @Override
   public T putIfAbsent(String key, T value) {
     int index = stringTable.code(key);
-    if (index >= 0) {
+    if (index >= 0 && stringTable.get(index).equals(key)) {
       return setValueAtIndexIfUnset(index, value);
     }
     return null;
@@ -199,20 +216,28 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     return readValueAtIndex(arrayIndex);
   }
 
+  public int indexFor(String key) {
+    return stringTable.code(key);
+  }
+
   /**
    * After calling this, the map can be used as if it were thread-local,
    * from the thread which calls this method. Once everything is settled,
    * and you have a reference to the same string table and know which keys
    * you want to access, you can use this hash map as if it's an array.
    */
-  public void makeImmutable() {
-    this.mask = UNSAFE.getLongVolatile(this, MASK_OFFSET);
-    long mask = this.mask;
+  public synchronized void makeImmutable() {
+    long mask = getMaskVolatile();
+    this.mask = mask;
     while (mask != 0L) { // wait for any pending updates
       int index = Long.numberOfTrailingZeros(mask);
-      values[index] = UNSAFE.getObjectVolatile(values, arrayIndex(index));
+      values[index] = readValueAtIndex(index);
       mask &= (mask - 1);
     }
+  }
+
+  private long getMaskVolatile() {
+    return UNSAFE.getLongVolatile(this, MASK_OFFSET);
   }
 
   private T setValueAtIndex(int index, T value) {
@@ -234,7 +259,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     long oldMask;
     long newMask;
     do {
-      oldMask = UNSAFE.getLongVolatile(this, MASK_OFFSET);
+      oldMask = getMaskVolatile();
       newMask = oldMask | bit;
     } while (oldMask != newMask
             && !UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
@@ -244,7 +269,7 @@ public class TagsMap<T> implements ConcurrentMap<String, T> {
     long oldMask;
     long newMask;
     do {
-      oldMask = UNSAFE.getLongVolatile(this, MASK_OFFSET);
+      oldMask = getMaskVolatile();
       newMask = oldMask & bit;
     } while (oldMask != newMask
             && !UNSAFE.compareAndSwapLong(this, MASK_OFFSET, oldMask, newMask));
